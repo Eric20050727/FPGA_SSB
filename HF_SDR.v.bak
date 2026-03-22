@@ -1,0 +1,211 @@
+// =========================================================
+// 顶层模块：大总管，负责连线
+// =========================================================
+module HF_SDR (
+    input  wire        clk_50m,  // 物理引脚 E1 (50MHz TCXO)
+    input  wire [3:0]  key,     
+    output wire [3:0]  led,      
+
+    // ======== AD9744 DAC 射频输出接口 ========
+    output wire        dac_clk,
+    output wire [13:0] dac_data,
+
+    // ======== INMP441 麦克风输入接口 ========
+    output wire        mic_sck, 
+    output wire        mic_ws,  
+    input  wire        mic_sd,  
+    output wire        mic_lr   
+);
+
+    assign mic_lr = 1'b0; 
+    assign led = 4'b0101; 
+
+    // 1. 锁相环 (PLL) 例化
+    wire clk_100m;      
+    wire clk_200m_dac;  
+    wire pll_locked;
+
+    sys_pll u_pll (
+        .areset (1'b0),     // 强制接地，永不复位
+        .inclk0 (clk_50m),
+        .c0     (clk_100m),
+        .c1     (clk_200m_dac),
+        .locked (pll_locked)
+    );
+
+    // 2. I2S 麦克风接收模块例化
+    wire signed [13:0] audio_raw;
+    wire audio_valid;
+
+    i2s_rx u_i2s_rx (
+        .clk_100m    (clk_100m),
+        .mic_sd      (mic_sd),
+        .mic_sck     (mic_sck),
+        .mic_ws      (mic_ws),
+        .audio_data  (audio_raw),
+        .audio_valid (audio_valid)
+    );
+
+    // 3. 希尔伯特滤波器模块例化
+    wire signed [13:0] audio_i;
+    wire signed [13:0] audio_q;
+
+    hilbert_filter u_hilbert (
+        .clk_100m    (clk_100m),
+        .audio_in    (audio_raw),
+        .audio_valid (audio_valid),
+        .audio_i     (audio_i),
+        .audio_q     (audio_q)
+    );
+
+    // 4. SSB 调制器与 DDS 模块例化
+    wire [13:0] dac_out_A;
+    wire [13:0] dac_out_B;
+
+    ssb_modulator u_ssb_mod (
+        .clk_100m  (clk_100m),
+        .audio_i   (audio_i),
+        .audio_q   (audio_q),
+        .dac_out_A (dac_out_A),
+        .dac_out_B (dac_out_B)
+    );
+
+    // 5. IO 边界序列化 (DDIO) 输出至 DAC
+    dac_ddio u_ddio (
+        .datain_h (dac_out_A),  // 上升沿发送 Sample A
+        .datain_l (dac_out_B),  // 下降沿发送 Sample B
+        .outclock (clk_100m),   // 驱动时钟为 100MHz
+        .dataout  (dac_data)    // 直接连到物理引脚
+    );
+
+    // DAC 的采样时钟，直接输出 PLL 产生的 200MHz (带 180度 相移)
+    assign dac_clk = clk_200m_dac;
+
+endmodule
+
+// =========================================================
+// 子模块 1：I2S 接收器
+// =========================================================
+module i2s_rx (
+    input  wire        clk_100m,   
+    input  wire        mic_sd,     
+    output wire        mic_sck,    
+    output wire        mic_ws,     
+    output reg signed [13:0] audio_data, 
+    output wire        audio_valid 
+);
+    reg[10:0] clk_div; 
+    always @(posedge clk_100m) clk_div <= clk_div + 1'b1;
+    
+    assign mic_sck = clk_div[4]; 
+    assign mic_ws  = clk_div[10]; 
+    
+    wire sck_rising = (clk_div[4:0] == 5'b01111); 
+    assign audio_valid = (clk_div == 11'd1023); 
+
+    reg [31:0] shift_reg;
+    always @(posedge clk_100m) begin
+        if (sck_rising)  
+            shift_reg <= {shift_reg[30:0], mic_sd}; 
+        if (audio_valid) 
+            audio_data <= shift_reg[30:7]; 
+    end
+endmodule
+
+// =========================================================
+// 子模块 2：希尔伯特 FIR 滤波器
+// =========================================================
+module hilbert_filter (
+    input  wire        clk_100m,
+    input  wire signed [13:0] audio_in,
+    input  wire        audio_valid,
+    output wire signed [13:0] audio_i,
+    output wire signed [13:0] audio_q
+);
+    reg signed [13:0] aud_sr[0:14]; 
+    integer i;
+    
+    always @(posedge clk_100m) begin
+        if (audio_valid) begin
+            aud_sr[0] <= audio_in;
+            for(i=1; i<15; i=i+1) aud_sr[i] <= aud_sr[i-1];
+        end
+    end
+
+    assign audio_i = aud_sr[7];
+
+    wire signed [24:0] hilbert_sum = 
+        (aud_sr[6] - aud_sr[8])  * 163 +
+        (aud_sr[4] - aud_sr[10]) * 54  +
+        (aud_sr[2] - aud_sr[12]) * 33  +
+        (aud_sr[0] - aud_sr[14]) * 23;
+        
+    assign audio_q = hilbert_sum[21:8];
+endmodule
+
+// =========================================================
+// 子模块 3：SSB 调制器与双路并行 DDS
+// =========================================================
+module ssb_modulator (
+    input  wire        clk_100m,
+    input  wire signed [13:0] audio_i,
+    input  wire signed[13:0] audio_q,
+    output reg  [13:0] dac_out_A, 
+    output reg  [13:0] dac_out_B  
+);
+    localparam STEP_200M = 32'd306446702; 
+    localparam STEP_100M = 32'd612893404; 
+
+    reg [31:0] phase_acc;
+    always @(posedge clk_100m) phase_acc <= phase_acc + STEP_100M;
+
+    wire [31:0] phase_A = phase_acc;
+    wire[31:0] phase_B = phase_acc + STEP_200M;
+
+    wire [7:0] pi_A = phase_A[31:24];
+    wire [7:0] pq_A = phase_A[31:24] + 8'd64; 
+    wire [7:0] pi_B = phase_B[31:24];
+    wire[7:0] pq_B = phase_B[31:24] + 8'd64;
+
+    wire signed [13:0] lut[0:63]; 
+    assign lut[0]=0;    assign lut[1]=201;  assign lut[2]=402;  assign lut[3]=602;
+    assign lut[4]=802;  assign lut[5]=1002; assign lut[6]=1201; assign lut[7]=1399;
+    assign lut[8]=1596; assign lut[9]=1792; assign lut[10]=1986;assign lut[11]=2179;
+    assign lut[12]=2370;assign lut[13]=2559;assign lut[14]=2746;assign lut[15]=2931;
+    assign lut[16]=3114;assign lut[17]=3295;assign lut[18]=3473;assign lut[19]=3649;
+    assign lut[20]=3822;assign lut[21]=3993;assign lut[22]=4161;assign lut[23]=4326;
+    assign lut[24]=4489;assign lut[25]=4649;assign lut[26]=4806;assign lut[27]=4960;
+    assign lut[28]=5111;assign lut[29]=5259;assign lut[30]=5403;assign lut[31]=5545;
+    assign lut[32]=5683;assign lut[33]=5818;assign lut[34]=5949;assign lut[35]=6077;
+    assign lut[36]=6201;assign lut[37]=6321;assign lut[38]=6438;assign lut[39]=6551;
+    assign lut[40]=6660;assign lut[41]=6765;assign lut[42]=6866;assign lut[43]=6963;
+    assign lut[44]=7056;assign lut[45]=7145;assign lut[46]=7230;assign lut[47]=7311;
+    assign lut[48]=7388;assign lut[49]=7461;assign lut[50]=7530;assign lut[51]=7595;
+    assign lut[52]=7655;assign lut[53]=7712;assign lut[54]=7764;assign lut[55]=7812;
+    assign lut[56]=7856;assign lut[57]=7896;assign lut[58]=7931;assign lut[59]=7962;
+    assign lut[60]=7989;assign lut[61]=8011;assign lut[62]=8029;assign lut[63]=8043;
+
+    reg signed [13:0] car_i_A, car_q_A, car_i_B, car_q_B;
+    always @(posedge clk_100m) begin
+        car_i_A <= pi_A[7] ? -lut[pi_A[6] ? ~pi_A[5:0] : pi_A[5:0]] : lut[pi_A[6] ? ~pi_A[5:0] : pi_A[5:0]];
+        car_q_A <= pq_A[7] ? -lut[pq_A[6] ? ~pq_A[5:0] : pq_A[5:0]] : lut[pq_A[6] ? ~pq_A[5:0] : pq_A[5:0]];
+        car_i_B <= pi_B[7] ? -lut[pi_B[6] ? ~pi_B[5:0] : pi_B[5:0]] : lut[pi_B[6] ? ~pi_B[5:0] : pi_B[5:0]];
+        car_q_B <= pq_B[7] ? -lut[pq_B[6] ? ~pq_B[5:0] : pq_B[5:0]] : lut[pq_B[6] ? ~pq_B[5:0] : pq_B[5:0]];
+    end
+
+    reg signed [27:0] mix_ii_A, mix_qq_A, mix_ii_B, mix_qq_B;
+    reg signed [28:0] usb_A, usb_B;
+
+    always @(posedge clk_100m) begin
+        mix_ii_A <= audio_i * car_i_A;
+        mix_qq_A <= audio_q * car_q_A;
+        mix_ii_B <= audio_i * car_i_B;
+        mix_qq_B <= audio_q * car_q_B;
+
+        usb_A <= mix_ii_A - mix_qq_A;
+        usb_B <= mix_ii_B - mix_qq_B;
+
+        dac_out_A <= usb_A[28:15] + 14'd8192;
+        dac_out_B <= usb_B[28:15] + 14'd8192;
+    end
+endmodule

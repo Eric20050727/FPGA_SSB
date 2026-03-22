@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<LOG_ROOT>
+	<PROJECT NAME="HF_SDR">
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|lpm_mult:Mult1" CBX_FILE_NAME="mult_56t.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|sine_rom:rom_inst_iB|altsyncram:altsyncram_component" CBX_FILE_NAME="altsyncram_4jc1.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|sine_rom:rom_inst_qB|altsyncram:altsyncram_component" CBX_FILE_NAME="altsyncram_4jc1.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|sys_pll:u_pll|altpll:altpll_component" CBX_FILE_NAME="sys_pll_altpll.v"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|lpm_mult:Mult2" CBX_FILE_NAME="mult_56t.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|lpm_mult:Mult3" CBX_FILE_NAME="mult_56t.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|dac_ddio:u_ddio|altddio_out:ALTDDIO_OUT_component" CBX_FILE_NAME="ddio_out_dbj.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|hilbert_filter:u_hilbert|altsyncram:coef_rom_rtl_0" CBX_FILE_NAME="altsyncram_ff91.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|hilbert_filter:u_hilbert|altsyncram:history_rtl_0" CBX_FILE_NAME="altsyncram_1si1.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|hilbert_filter:u_hilbert|lpm_mult:Mult0" CBX_FILE_NAME="mult_16t.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|lpm_mult:Mult0" CBX_FILE_NAME="mult_56t.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|sine_rom:rom_inst_iA|altsyncram:altsyncram_component" CBX_FILE_NAME="altsyncram_4jc1.tdf"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|HF_SDR|multi_band_modulator:u_band_mod|sine_rom:rom_inst_qA|altsyncram:altsyncram_component" CBX_FILE_NAME="altsyncram_4jc1.tdf"/>
+	</PROJECT>
+</LOG_ROOT>

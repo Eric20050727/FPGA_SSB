@@ -1,0 +1,28 @@
+
+State Machine - |HF_SDR|hilbert_filter:u_hilbert|state
+Name state.S_DC_ESTIMATE state.S_ROUNDING state.S_FIR_CALC state.S_IDLE state.S_OUTPUT 
+state.S_IDLE 0 0 0 0 0 
+state.S_FIR_CALC 0 0 1 1 0 
+state.S_ROUNDING 0 1 0 1 0 
+state.S_DC_ESTIMATE 1 0 0 1 0 
+state.S_OUTPUT 0 0 0 1 1 
+
+State Machine - |HF_SDR|tx_audio_proc:u_tx_audio_proc|state
+Name state.01111 state.01110 state.01101 state.01100 state.01011 state.01010 state.01001 state.01000 state.00111 state.00110 state.00101 state.00100 state.00011 state.00010 state.00001 state.00000 state.10000 
+state.00000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
+state.00001 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 
+state.00010 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 1 0 
+state.00011 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 1 0 
+state.00100 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 
+state.00101 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 1 0 
+state.00110 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0 
+state.00111 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 1 0 
+state.01000 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 1 0 
+state.01001 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 
+state.01010 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 1 0 
+state.01011 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1 0 
+state.01100 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0 
+state.01101 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 
+state.01110 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 
+state.01111 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 
+state.10000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 
