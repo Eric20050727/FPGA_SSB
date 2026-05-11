@@ -1,251 +1,298 @@
 # FPGA_SSB
 
-这是一个面向**自我探索与学习**的 FPGA + RF 项目：我尝试用一块 **Cyclone IV E EP4CE10（4CE10）** FPGA，配合 **AD9744 并行高速 DAC** 与 **I2S 数字麦克风模块**，搭建一条从语音采集、数字信号处理到 SSB（单边带）调制输出的实验链路。
+This is an FPGA + RF project built mainly for **self-exploration and learning**. In this project, I use a **Cyclone IV E EP4CE10 (4CE10)** FPGA, together with an **AD9744 high-speed parallel DAC** and an **I2S digital microphone module**, to build an experimental signal chain from voice capture and digital signal processing to SSB (Single Sideband) modulated output.
 
-这个仓库不追求“产品化”，更像是一份边做边学、边验证边整理的工程记录。它适合：
+This repository is not intended to be a polished commercial product. Instead, it is closer to an engineering record of learning, testing, debugging, and documenting the process step by step.
 
-- 对 FPGA 数字信号处理感兴趣的同学
-- 想把“音频 → I/Q → SSB 调制”真正落到硬件上的爱好者
-- 想练习 Quartus、时序约束、NCO、FIR、插值器等基础模块的人
+It may be useful for:
 
----
-
-## 1. 项目目标
-
-这个项目的核心目标，是把**麦克风语音**送入 FPGA 后，完成一条简化但完整的数字发射处理流程：
-
-1. 通过 **I2S 麦克风**采集语音
-2. 在 FPGA 内做基础音频处理
-3. 通过 **Hilbert 滤波**构造正交信号（I/Q）
-4. 进行插值与数控振荡（NCO）调制
-5. 生成适合 **AD9744** 输出的并行 DAC 数据
-6. 为后级模拟滤波、功放或射频实验提供数字激励信号
-
-从学习视角看，这个项目更重要的不是“立刻做出一台完整电台”，而是把以下问题亲手走通：
-
-- FPGA 如何采集 I2S 音频？
-- 什么是 I/Q？为什么 SSB 要先做 Hilbert 变换？
-- FPGA 里怎样用查表 + 相位累加器生成载波？
-- 插值、限幅、时序优化在真实工程里怎么落地？
-- 一个能综合、能布线、能过时序的 RF 数字链路大概长什么样？
+- Students or hobbyists interested in FPGA-based digital signal processing
+- People who want to implement the full “audio → I/Q → SSB modulation” chain on real hardware
+- Learners who want to practise Quartus, timing constraints, NCOs, FIR filters, interpolators, and other basic FPGA modules
 
 ---
 
-## 2. 使用硬件
+## 1. Project Goals
 
-本项目目前围绕以下硬件展开：
+The main goal of this project is to take **microphone voice input** into the FPGA and complete a simplified but functional digital transmit processing chain.
 
-- **FPGA：Cyclone IV E EP4CE10F17C8**
-- **DAC：AD9744**（14-bit 并行高速 DAC）
-- **音频输入：I2S 数字麦克风模块**
-- **开发环境：Quartus II 13.1**
+The main processing flow includes:
 
-仓库内的 `.qsf / .qpf / .sdc` 文件已经表明这是一个实际可综合、可布局布线的 Quartus 工程，而不是只停留在算法层面的伪代码示例。
+1. Capturing voice through an **I2S microphone**
+2. Performing basic audio processing inside the FPGA
+3. Generating quadrature baseband signals (I/Q) using a **Hilbert filter**
+4. Applying interpolation and NCO-based modulation
+5. Generating parallel DAC data suitable for the **AD9744**
+6. Providing a digital excitation signal for later analogue filtering, power amplifier testing, or RF experiments
+
+From a learning perspective, the most important goal is not to immediately build a complete radio transmitter, but to go through the following questions in a real hardware project:
+
+- How does an FPGA capture I2S audio?
+- What are I/Q signals, and why is a Hilbert transform useful for SSB generation?
+- How can a carrier be generated in an FPGA using a lookup table and a phase accumulator?
+- How are interpolation, limiting, and timing optimisation implemented in a practical FPGA design?
+- What does a synthesizable, routable, and timing-closed RF digital signal chain look like?
 
 ---
 
-## 3. 整体信号链
+## 2. Hardware Used
 
-可以把整个工程理解成下面这条数字链路：
+This project is currently based on the following hardware:
+
+- **FPGA:** Cyclone IV E EP4CE10F17C8
+- **DAC:** AD9744, a 14-bit high-speed parallel DAC
+- **Audio input:** I2S digital microphone module
+- **Development environment:** Quartus II 13.1
+
+The `.qsf`, `.qpf`, and `.sdc` files in this repository show that this is a real Quartus project that can be synthesized, placed, routed, and timing checked, rather than only an algorithm-level pseudocode example.
+
+---
+
+## 3. Overall Signal Chain
+
+The whole project can be understood as the following digital signal chain:
 
 ```text
-I2S麦克风
+I2S Microphone
    ↓
-I2S接收 / 对齐 / 去直流
+I2S Receive / Alignment / DC Offset Removal
    ↓
-发射音频处理（增益、门限、噪声抑制思路）
+Transmit Audio Processing
+Gain / Threshold / Basic Noise Suppression Ideas
    ↓
-Hilbert滤波器
+Hilbert Filter
    ↓
-得到 I / Q 两路基带信号
+I / Q Baseband Signals
    ↓
-CIC插值
+CIC Interpolation
    ↓
-数控振荡器(NCO) + 正交调制
+NCO + Quadrature Modulation
    ↓
-USB / LSB 单边带生成
+USB / LSB Single Sideband Generation
    ↓
-14-bit DAC 并行输出（AD9744）
+14-bit Parallel DAC Output for AD9744
 ```
 
-如果你之前只在书上看过“SSB 调制”，这个工程的价值就在于：它把抽象公式变成了 FPGA 里真实存在的一串寄存器、乘法器、ROM 和时钟域。
+If you have only seen “SSB modulation” in textbooks before, the value of this project is that it turns the abstract equations into real FPGA logic made of registers, multipliers, ROM tables, and clocked signal paths.
 
 ---
 
-## 4. 这个项目里能学到什么
+## 4. What You Can Learn from This Project
 
-### 4.1 I2S 接收并不只是“读数据”
+### 4.1 I2S Reception Is More Than Just “Reading Data”
 
-I2S 麦克风会输出串行音频位流，FPGA 需要自己生成或配合时钟信号，把串行比特重新拼成定长采样值。
+An I2S microphone outputs a serial audio bitstream. The FPGA needs to use the bit clock and word select signal to reconstruct the serial bits into fixed-width audio samples.
 
-在这个项目里，你可以观察：
+In this project, you can observe:
 
-- 位时钟和字选择信号如何产生
-- 串行移位寄存器如何拼出 24-bit 音频
-- 音频帧有效信号如何定义
-- 为什么很多实际语音链路都要先做一个简单的**去直流（DC offset removal）**
+- How the bit clock and word select signal are generated or used
+- How a serial shift register reconstructs 24-bit audio data
+- How an audio sample valid signal is defined
+- Why many practical voice-processing chains need simple **DC offset removal**
 
-这是数字音频进 FPGA 的第一步，也是很多人第一次把“时序”和“协议”联系起来的地方。
-
-### 4.2 为什么 SSB 需要 I/Q
-
-如果直接把语音去乘一个载波，通常得到的是双边带（DSB）信号；而要得到单边带（SSB），核心思路之一就是构造出一对相差 90° 的基带信号，也就是 **I/Q**。
-
-这里就会用到 **Hilbert 变换 / Hilbert FIR**。
-
-你可以把它先粗略理解成：
-
-- 一路保留“原本的相位参考”
-- 另一路构造“相移 90° 的参考”
-- 然后分别乘上正交载波
-- 最后通过“相加/相减”来消掉一个边带，只留下另一个边带
-
-这也是很多 SDR 教材里最重要、但初学者最容易停留在公式层面的部分。
-
-### 4.3 NCO 是 FPGA 里最常见的“数字本振”
-
-项目中的载波不是来自外部模拟振荡器，而是通过 FPGA 内部的 **相位累加器 + 正弦查找表（ROM）** 生成。
-
-这就是经典的 **NCO（Numerically Controlled Oscillator，数控振荡器）**。
-
-学这个模块时建议重点看：
-
-- 步进字（frequency word）如何决定输出频率
-- 为什么相位高位可以直接当 ROM 地址
-- 为什么正弦和余弦可以通过相位偏移来得到
-- 多频点切换时，本质上只是修改相位累加步进值
-
-只要真的看懂一次 NCO，你以后再看 DDS、数字下变频、数字上变频都会顺很多。
-
-### 4.4 插值为什么重要
-
-音频采样率通常远低于 DAC 输出更新速率，所以在进入 DAC 之前，往往需要把采样流“抬高”到更适合调制和输出的速率。
-
-这里使用了 **CIC 插值器**。它的优点是：
-
-- 结构规则
-- 不需要乘法器或乘法器需求较少
-- 在 FPGA 里实现成本低
-
-这非常适合做入门级的采样率转换实验。
-
-### 4.5 工程不只是算法，还包括时序
-
-这个仓库的另一个学习重点，是你会看到它不仅有 HDL 代码，还有：
-
-- `HF_SDR.qsf`：引脚与工程配置
-- `HF_SDR.sdc`：时序约束
-- `output_files/`：综合、布局布线与时序分析结果
-
-这说明一个“能跑”的 FPGA 项目，远不只是写完 Verilog 就结束，还要面对：
-
-- 时钟怎么来
-- IO 怎么绑
-- 时序能不能收敛
-- 关键路径在哪里
-- 资源占用是否合理
-
-从学习角度讲，这些内容和算法本身同样重要。
+This is the first step of bringing digital audio into an FPGA, and it is often where learners first connect timing logic with a real communication protocol.
 
 ---
 
-## 5. 代码结构简介
+### 4.2 Why SSB Needs I/Q
 
-仓库中比较关键的文件包括：
+If a voice signal is directly multiplied by a carrier, the result is usually a double-sideband (DSB) signal.
 
-- `HF_SDR.v`：顶层与主要信号处理模块
-- `sine_rom.v`：正弦 ROM，用于 NCO / 载波生成
-- `sys_pll.v`：PLL 相关文件，用于从板载时钟派生系统时钟
-- `dac_ddio.vhd`：DAC 双沿输出相关 IP
-- `HF_SDR.qsf`：Quartus 工程与引脚分配
-- `HF_SDR.sdc`：时钟与时序约束
+To generate a single-sideband (SSB) signal, one common method is to construct a pair of baseband signals with a 90° phase difference, known as **I/Q** signals.
 
-如果你第一次接触这个仓库，建议优先按下面顺序阅读：
+This is where the **Hilbert transform / Hilbert FIR filter** is used.
 
-1. 先看 `HF_SDR.v` 顶层端口，搞清楚输入输出是谁
-2. 再看 `i2s_rx`，理解音频是怎么进来的
-3. 然后看 `tx_audio_proc`，理解语音预处理思路
-4. 接着看 `hilbert_filter`
-5. 再看 `cic_interpolator`
-6. 最后看 `multi_band_modulator`，理解 SSB 是如何真正“调”出来的
+A simplified way to understand it is:
+
+- One path keeps the original phase reference
+- The other path creates a 90° phase-shifted reference
+- The two signals are multiplied by quadrature carriers
+- Finally, addition or subtraction is used to cancel one sideband and keep the other
+
+This is one of the most important parts of many SDR textbooks, but it is also a topic that beginners often understand only at the formula level. This project helps connect the theory with hardware implementation.
 
 ---
 
-## 6. 建议的学习路径
+### 4.3 NCO as a Digital Local Oscillator
 
-如果你想把这个仓库当教程来学，我建议按这个顺序：
+The carrier in this project is not generated by an external analogue oscillator. Instead, it is generated inside the FPGA using a **phase accumulator and a sine lookup table (ROM)**.
 
-### 第一步：先不要急着懂全部数学
-先接受这样一个事实：
+This is a classic **NCO (Numerically Controlled Oscillator)**.
 
-- 音频先采进来
-- 变成 I/Q
-- 和正交载波相乘
-- 再通过相加或相减得到 USB/LSB
+When studying this module, it is useful to focus on:
 
-先把数据流方向搞懂，比一开始就死抠公式更有效。
+- How the frequency control word determines the output frequency
+- Why the upper bits of the phase accumulator can be used as the ROM address
+- How sine and cosine can be generated through phase offset
+- Why switching frequency is essentially changing the phase increment value
 
-### 第二步：盯住“时钟”和“有效信号”
-在 FPGA 里，很多 bug 不是算法错，而是：
-
-- 数据何时更新
-- 有效信号是否对齐
-- 管线延迟有没有补偿
-- 不同时钟域之间是否处理正确
-
-所以阅读代码时，建议多问自己：
-
-- 这个寄存器在哪个时钟沿更新？
-- 这一路数据晚了几拍？
-- 这里为什么要打一拍/两拍？
-
-### 第三步：把模块逐个替换做实验
-这是一个很适合“动手乱改再观察结果”的项目。比如：
-
-- 改不同的 NCO 步进字，观察频点变化
-- 替换 Hilbert 滤波器系数
-- 调整音频处理强度
-- 关闭某一级处理，看输出有什么变化
-
-这种“局部改动 → 重新综合 → 实测”的过程，往往比看十篇教程都更有收获。
+Once you understand an NCO properly, later topics such as DDS, digital down-conversion, and digital up-conversion become much easier to understand.
 
 ---
 
-## 7. 关于这个项目的定位
+### 4.4 Why Interpolation Is Important
 
-这是一个**自我探索型项目**。
+The audio sampling rate is usually much lower than the DAC update rate. Therefore, before sending data to the DAC, the sample stream often needs to be increased to a rate more suitable for modulation and output.
 
-也就是说，它并不是为了做成一个商业产品或完整套件，而是为了通过真实硬件把这些概念串起来：
+This project uses a **CIC interpolator**.
 
-- FPGA 音频接口
-- 数字信号处理
-- I/Q 与 SSB
-- DAC 驱动
-- 时序分析与工程实现
+The advantages of a CIC interpolator include:
 
-如果你也在做类似的个人实验，希望这个仓库能给你一个比较接地气的参考：
+- A regular and hardware-friendly structure
+- No multipliers, or very few multiplier resources
+- Low implementation cost in FPGA logic
 
-> 不一定要先把所有理论都学完，很多理解恰恰是在“写出来、烧进去、看到波形、发现不对、再改一遍”的过程中建立起来的。
+Because of these features, it is well suited for entry-level sample-rate conversion experiments.
 
 ---
 
-## 8. 使用与提醒
+### 4.5 Engineering Is Not Only About Algorithms, But Also Timing
 
-- 这是一个偏实验性质的 RF/数字发射项目，请务必结合你所在地区的无线电法规开展实验。
-- 如果接后级功放、天线或射频前端，请先确认频谱纯净度、滤波与功率安全。
-- 仓库内包含 Quartus 生成文件，适合直接回看工程状态，但也会让仓库显得比较“重”。
+Another important learning point of this repository is that it contains not only HDL code, but also Quartus project files.
+
+For example:
+
+- `HF_SDR.qsf`: pin assignments and project configuration
+- `HF_SDR.sdc`: clock definitions and timing constraints
+- `output_files/`: synthesis, place-and-route, and timing analysis outputs
+
+This shows that a working FPGA project is not finished just because the Verilog code has been written.
+
+A real FPGA project also needs to consider:
+
+- Where the clocks come from
+- How IO signals are assigned to physical pins
+- Whether timing can close successfully
+- Where the critical paths are
+- Whether the resource usage is reasonable
+
+From a learning perspective, these engineering details are just as important as the signal-processing algorithm itself.
 
 ---
 
-## 9. 后续可继续完善的方向
+## 5. Code Structure
 
-后面如果继续迭代，这个项目还可以往这些方向扩展：
+The key files in this repository include:
 
-- 更清晰的模块化拆分
-- 增加仿真 testbench
-- 给各级滤波器补充系数说明
-- 增加频谱/示波器截图
-- 补充板级连接图（4CE10 ↔ AD9744 ↔ I2S 麦克风）
-- 增加接收链，做成更完整的 SDR 收发实验平台
+- `HF_SDR.v`  
+  Top-level file and main signal-processing logic.
 
-如果你正在阅读这份 README，希望它不只是“项目介绍”，也能成为一份面向初学者的入门说明。欢迎在此基础上继续试验、修改、验证，并形成你自己的理解。
+- `sine_rom.v`  
+  Sine ROM used for the NCO / carrier generation.
+
+- `sys_pll.v`  
+  PLL-related file used to derive system clocks from the board clock.
+
+- `dac_ddio.vhd`  
+  DDIO-related IP for DAC output.
+
+- `HF_SDR.qsf`  
+  Quartus project configuration and pin assignments.
+
+- `HF_SDR.sdc`  
+  Clock and timing constraints.
+
+If this is your first time reading this repository, the following reading order is recommended:
+
+1. Start with the top-level ports in `HF_SDR.v` to understand the inputs and outputs.
+2. Then read `i2s_rx` to understand how audio enters the FPGA.
+3. Next, read `tx_audio_proc` to understand the basic voice preprocessing.
+4. Then study `hilbert_filter`.
+5. Then study `cic_interpolator`.
+6. Finally, read `multi_band_modulator` to understand how the SSB signal is actually generated.
+
+---
+
+## 6. Suggested Learning Path
+
+If you want to use this repository as a learning project, the following order may be helpful.
+
+### Step 1: Do Not Try to Understand All the Mathematics First
+
+Start by understanding the basic data flow:
+
+- Audio is first captured
+- Then it is converted into I/Q signals
+- The I/Q signals are multiplied by quadrature carriers
+- Finally, addition or subtraction is used to generate USB / LSB
+
+At the beginning, understanding the direction of the signal flow is usually more useful than focusing too much on the equations.
+
+---
+
+### Step 2: Pay Attention to Clocks and Valid Signals
+
+In FPGA designs, many bugs are not caused by the algorithm itself, but by timing or data alignment problems.
+
+Common problems include:
+
+- When the data is updated
+- Whether the valid signal is aligned with the data
+- Whether pipeline latency has been compensated
+- Whether signals crossing clock domains are handled correctly
+
+When reading the code, it is useful to ask:
+
+- On which clock edge is this register updated?
+- How many cycles is this data path delayed?
+- Why is this signal delayed by one or two cycles here?
+
+---
+
+### Step 3: Replace Modules One by One and Experiment
+
+This project is suitable for the workflow of “local modification → resynthesis → real measurement”.
+
+For example, you can try:
+
+- Change the NCO frequency word and observe the output frequency change
+- Replace the Hilbert filter coefficients
+- Adjust the strength of audio processing
+- Disable one processing stage and observe how the output changes
+
+This process of changing the design and observing the result is often more useful than only reading tutorials.
+
+---
+
+## 7. Project Positioning
+
+This is a **self-exploration project**.
+
+It is not intended to become a commercial product or a complete radio kit. Instead, its purpose is to connect the following concepts through real hardware:
+
+- FPGA audio interface
+- Digital signal processing
+- I/Q and SSB
+- DAC driving
+- Timing analysis and engineering implementation
+
+If you are working on a similar personal experiment, I hope this repository can serve as a practical and realistic reference.
+
+You do not need to fully understand all the theory before starting. A lot of understanding is built during the process of writing the code, programming the FPGA, observing the waveform, finding problems, and modifying the design again.
+
+---
+
+## 8. Usage Notes and Safety Reminders
+
+This is an experimental RF / digital transmit project. Please make sure your experiments comply with the radio regulations in your region.
+
+If you connect a power amplifier, antenna, or RF front-end, please first check spectral purity, filtering, and power safety.
+
+This repository contains Quartus-generated files. They are useful for checking the project state directly, but they also make the repository relatively large.
+
+---
+
+## 9. Possible Future Improvements
+
+If this project is further developed, possible improvements include:
+
+- Clearer modular decomposition
+- Adding simulation testbenches
+- Adding explanations for filter coefficients
+- Adding spectrum and oscilloscope screenshots
+- Adding board-level connection diagrams, such as the connections between the 4CE10, AD9744, and I2S microphone
+- Adding a receive chain and extending the project into a more complete SDR transmit/receive experiment platform
+
+If you are reading this README, I hope it is not only a project introduction, but also a beginner-friendly guide to this kind of FPGA + RF experiment.
+
+You are welcome to continue experimenting, modifying, testing, and building your own understanding based on this project.
